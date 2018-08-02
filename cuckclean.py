@@ -1,15 +1,20 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
+'''
+Command line utility to either get or delete a Cuckoo SandBox analysis from a MongoDB instance
+For the delete operations to work fast enough, a prerequisite is to create indexes on the fields described in the README
+'''
 import sys
 import logging
+import shutil
 import click
 import pymongo
 import gridfs
+from bson.objectid import ObjectId
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)s %(message)s',
-                    filename='/root/cuckclean.log', filemode='a')
+                    filename='cuckclean.log', filemode='a')
 
 
 def connect():
@@ -52,59 +57,56 @@ def get_calls(db, procs):
     return call_ids
 
 
-def get_files(db, target, pcap_id, sorted_pcap_id, mitmproxy_id, shots, dropped, extracted):
+def get_files(target, network, shots, dropped, extracted):
     '''
     Get ID-s for target file, screenshots and extracted files
     '''
-    fs_ids = set()
-    #fs = gridfs.GridFS(db)
-    #target_file = fs.find_one({"_id": target})
-    #fs_ids.add(target_file._id)
-    fs_ids.add(target)
+    fs_ids = dict()
 
-    #pcap_file = fs.find_one({"_id": pcap_id})
-    #fs_ids.add(pcap_file._id)
-    fs_ids.add(pcap_id)
+    if target['file_id'] is not None:
+        fs_ids['target'] = target['file_id']
 
-    #sorted_pcap_file = fs.find_one({"_id": sorted_pcap_id})
-    #fs_ids.add(sorted_pcap_file._id)
-    fs_ids.add(sorted_pcap_id)
+    if 'pcap_id' in network:
+        fs_ids['pcap_id'] = network['pcap_id']
 
-    #mitmproxy_file = fs.find_one({"_id": mitmproxy_id})
-    #fs_ids.add(mitmproxy_file._id)
-    fs_ids.add(mitmproxy_id)
+    if 'sorted_pcap_id' in network:
+        fs_ids['sorted_pcap_id'] = network['sorted_pcap_id']
 
+    if 'mitmproxy_id' in network:
+        fs_ids['mitmproxy_id'] = network['mitmproxy_id']
+
+    fs_ids['shots'] = set()
     for shot in shots:
-        #original = fs.find_one({"_id": shot['original']})
-        #fs_ids.add(original._id)
-        fs_ids.add(shot['original'])
-        #small = fs.find_one({"_id": shot['small']})
-        #fs_ids.add(small._id)
-        fs_ids.add(shot['small'])
-    
-    for drop in dropped:
-        #droppped_file = fs.find_one({"_id": drop["object_id"]})
-        #fs_ids.add(droppped_file._id)
-        fs_ids.add(drop['object_id'])
+        if isinstance(shot, dict):
+            if "small" in shot:
+                fs_ids['shots'].add(shot['small'])
 
+            if "original" in shot:
+                fs_ids['shots'].add(shot["original"])
+            continue
+
+    fs_ids['dropped'] = set()
+    for drop in dropped:
+        fs_ids['dropped'].add(drop['object_id'])
+
+    fs_ids['extracted'] = set()
     for ext in extracted:
         for id in ext['extracted']:
-            fs_ids.add(id['extracted_id'])
+            fs_ids['extracted'].add(id['extracted_id'])
 
     return fs_ids
 
 
 @click.command()
-@click.option('--task_id', default=1,  help='ID of task to retrieve from Mongo')
+@click.option('--task-id', default=1,  help='ID of task to retrieve from Mongo')
 def get(task_id):
     '''
     Get a Cuckoo analysis from Mongo and display path
     '''
 
     chunks = list()
-    procs = dict()
     calls = list()
-    files = list()
+    files = dict()
     db = connect()
 
     # Get the report from the analysis collection
@@ -116,71 +118,67 @@ def get(task_id):
 
     click.echo('Analysis storage path: {}'.format(analysis['info']['analysis_path']))
 
-    if 'file_id' in analysis['target']:
-        click.echo('Target file id: {}'.format(analysis['target']['file_id']))
-        files = get_files(db,
-                            analysis['target']['file_id'],
-                            analysis['network']['pcap_id'],
-                            analysis['network']['sorted_pcap_id'],
-                            analysis['network']['mitmproxy_id'],
-                            analysis['shots'],
-                            analysis['dropped'],
-                            analysis['procmemory'])
+    files = get_files(analysis['target'], #['file_id']
+                      analysis['network'], #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
+                      analysis['shots'],
+                      analysis['dropped'],
+                      analysis['procmemory'])
+
+    if files['target'] is not None:
+        click.echo('Target file id: {}'.format(files['target']))
 
     # Find all chunks related to the files
-    for file in files:
-        chunks += get_chunks(db, file)
+    for key,values in files.items():
+        click.echo('These are file ids for {0}:\n'.format(key))
+        click.echo(files[key])
+        click.echo('Corresponding chunks are:\n')
+        try:
+            for value in values:
+                chunks += get_chunks(db, value)
+        except TypeError:
+            chunks += get_chunks(db, values)
+        click.echo(chunks)
+        chunks = []
+        click.echo('-----------------------------------------------')
 
     # For every process, find id-s of all calls stored in Mongo
-    try:
-        procs = analysis['behavior']['processes']
-    except KeyError:
-        logging.debug('No calls found for task ID: {}'.format(task_id))
+    if 'processes' in analysis['behavior']:
+        calls = get_calls(db, analysis['behavior']['processes'])
 
-    # procs = analysis['behavior']['processes']
-    calls = get_calls(db, procs)
-
-    click.echo('These are chunk_ids:\n {}'.format(chunks))
-    click.echo('-----------------------------------------------')
-    click.echo('These are fs_ids:\n {}'.format(files))
     click.echo('-----------------------------------------------')
     click.echo('These are call_ids:\n {}'.format(calls))
 
 
 @click.command()
-@click.option('--task_id', default=1, help='Task ID')
+@click.option('--task-id', default=1, help='ID of task to delete')
 def delete(task_id):
     '''
     Delete the analysis and all related calls for the given Task ID
     '''
 
-    procs = dict()
     db = connect()
+    fs = gridfs.GridFS(db)
+
     analysis = get_analysis(db, task_id)
     if analysis is None:
         click.echo('Analysis with task ID {} not found, terminating...'.format(task_id))
         sys.exit(1)
-
-    try:
-        procs = analysis['behavior']['processes']
-    except KeyError:
-        logging.debug('No calls found for task ID: {}'.format(task_id))
-
-    calls = get_calls(db, procs)
 
     click.echo('Task {task_id} has Mongo id: {id}'
                .format(task_id=task_id, id=analysis['_id']))
     click.echo('Storage path for {task_id}: {path}'
                .format(task_id=task_id,
                path=analysis['info']['analysis_path']))
-    #click.echo('Number of calls: {calls} for task {task_id}'
-    #           .format(calls=len(calls), task_id=task_id))
+    
+    # For every process, find id-s of all calls stored in Mongo and delete them
+    if 'processes' in analysis['behavior']:
+        calls = get_calls(db, analysis['behavior']['processes'])
 
     del_calls = dict()
     del_calls['count'] = 0
     del_calls['results'] = dict()
     for call in calls:
-        click.echo('Deleting call ID: %s' % call)
+        click.echo('Deleting call ID: {0}'.format(call))
         del_call_result = db.calls.delete_one({"_id": call})
         del_calls['count'] += del_call_result.deleted_count
         del_calls['results'][call] = del_call_result.raw_result
@@ -190,14 +188,74 @@ def delete(task_id):
                total=len(calls), task_id=task_id))
     logging.debug(del_calls['results'])
 
+    files = get_files(analysis['target'], #['file_id']
+                      analysis['network'], #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
+                      analysis['shots'],
+                      analysis['dropped'],
+                      analysis['procmemory'])
+
+    # Delete sample file from GridFS
+    if files['target'] is not None:
+        if db.analysis.find({"target.file_id": files["target"]}).count() == 1:
+            click.echo('Deleting target file: {0}'.format(files['target']))
+            fs.delete(files["target"])
+    logging.info('Deleted sample file with ID: {file_id}'
+                 .format(file_id=files["target"]))
+
+    # Delete screenshots.
+    shot_del_count = 0
+    for shot in files['shots']:
+        if db.analysis.find({"shots.original": shot}).count() == 1:
+                    click.echo('Deleting shot file: {0}'.format(shot))
+                    shot_del_count += 1
+                    fs.delete(shot)
+    click.echo('Total count of shots was {}'.format(len(files['shots'])))
+    click.echo('I deleted {0} shots'.format(shot_del_count))
+
+    # Delete network pcap.
+    if files['pcap_id'] is not None:
+        if db.analysis.find({"network.pcap_id": files["pcap_id"]}).count() == 1:
+            click.echo('Deleting PCAP file: {0}'.format(files['pcap_id']))
+            fs.delete(files["pcap_id"])
+
+    # Delete sorted pcap
+    #if files['sorted_pcap_id'] is not None:
+    if 'sorted_pcap_id' in files:
+        if db.analysis.find({"network.sorted_pcap_id": files["sorted_pcap_id"]}).count() == 1:
+            click.echo('Deleting SORTED PCAP file: {0}'.format(files['sorted_pcap_id']))
+            fs.delete(files["sorted_pcap_id"])
+
+    # Delete mitmproxy dump.
+    #if files['mitmproxy_id'] is not None:
+    if 'mitmproxy_id' in files:
+        if db.analysis.find({"network.mitmproxy_id": files["mitmproxy_id"]}).count() == 1:
+            click.echo('Deleting MITMPROXY file: {0}'.format(files['mitmproxy_id']))
+            fs.delete(files["mitmproxy_id"])
+    
+    # Delete dropped.
+    drop_del_count = 0
+    for drop in files["dropped"]:
+        if db.analysis.find({"dropped.object_id": drop}).count() == 1:
+            click.echo('Deleting droppped file: {0}'.format(drop))
+            drop_del_count += 1
+            fs.delete(drop)
+    click.echo('Total count of droppped was {}'.format(len(files['dropped'])))
+    click.echo('I deleted {0} dropped files'.format(drop_del_count))
+
+    # Delete analysis document
+    click.echo('Will delete analysis document for TASK ID: {0} and ObjectID: {1}'
+                .format(task_id, analysis['_id']))
     del_analysis = db.analysis.delete_one({"_id": analysis['_id']})
-    logging.info('Deleted analysis {task_id}, result was: {ack} and count was: {count}'
-                   .format(task_id=task_id, ack=del_analysis.acknowledged,
-                   count=del_analysis.deleted_count))
+    logging.info('Deleted analysis {task_id}, result was: {ack}'
+                   .format(task_id=task_id, ack=del_analysis.acknowledged))
     click.echo('Deleted analysis {task_id}, got response: {ack}'
                .format(task_id=task_id, ack=del_analysis.acknowledged))
-    #logging.debug('Deleted analysis, got raw result: {}'.format(del_analysis.raw_result))
-    #logging.debug('Deleted analysis, got count: {}'.format(del_analysis.deleted_count))
+    logging.debug('Deleted analysis, got raw result: {}'.format(del_analysis.raw_result))
+    logging.debug('Deleted analysis, got count: {}'.format(del_analysis.deleted_count))
+
+    click.echo('Analysis and related data removed from Mongo, now removing storage folder at: {0}'
+               .format(analysis['info']['analysis_path']))
+    shutil.rmtree(analysis['info']['analysis_path'])
 
 @click.group()
 def entry_point():
