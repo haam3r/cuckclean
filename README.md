@@ -1,5 +1,5 @@
 # cuckclean
-# cuckclean
+
 Command line utility to either get or delete a Cuckoo SandBox analysis from a MongoDB instance.
 
 Additionally provides a prune command that is used to delete old analysis results in bulk, by specifying how many to keep.
@@ -9,7 +9,7 @@ For the delete operations to work fast enough, a prerequisite is to create index
 
 Example commands for this:
 
-```
+```bash
 db.analysis.createIndex({"info.id": 1})
 db.analysis.createIndex({"dropped.object_id": 1})
 db.analysis.createIndex({"target.file_id": 1})
