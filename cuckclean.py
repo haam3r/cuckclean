@@ -223,6 +223,7 @@ def delete(task_id=None, object_id=None):
                total=len(calls), task_id=task_id))
     logging.debug(del_calls['results'])
 
+    # Compile a list of all file id-s using the get_files function and delete all files that are unique
     files = get_files(analysis['target'], #['file_id']
                       analysis['network'], #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
                       analysis['shots'],
@@ -242,7 +243,7 @@ def delete(task_id=None, object_id=None):
     shot_del_count = 0
     for shot in files['shots']:
         if db.analysis.find({"shots.original": shot}).count() == 1:
-                    click.echo('Deleting shot file: {0}'.format(shot))
+                    logging.debug('Deleting shot file: {0}'.format(shot))
                     shot_del_count += 1
                     fs.delete(shot)
     click.echo('Total count of shots was {}'.format(len(files['shots'])))
@@ -274,19 +275,15 @@ def delete(task_id=None, object_id=None):
             drop_del_count += 1
             fs.delete(drop)
     click.echo('Total count of droppped was {}'.format(len(files['dropped'])))
-    click.echo('I deleted {0} dropped files'.format(drop_del_count))
+    click.echo('{0} dropped files were deleted'.format(drop_del_count))
 
     # Delete analysis document
-    click.echo('Will delete analysis document for TASK ID: {0} and ObjectID: {1}'
-                .format(task_id, analysis['_id']))
     del_analysis = db.analysis.delete_one({"_id": analysis['_id']})
-    logging.info('Deleted analysis {task_id}, result was: {ack}'
-                   .format(task_id=task_id, ack=del_analysis.acknowledged))
     click.echo('Deleted analysis {task_id}, got response: {ack}'
                .format(task_id=task_id, ack=del_analysis.acknowledged))
     logging.debug('Deleted analysis, got raw result: {}'.format(del_analysis.raw_result))
-    logging.debug('Deleted analysis, got count: {}'.format(del_analysis.deleted_count))
 
+    # Delete storage folder from disk
     click.echo('Analysis and related data removed from Mongo, now removing storage folder at: {0}'
                .format(analysis['info']['analysis_path']))
     shutil.rmtree(analysis['info']['analysis_path'])
@@ -303,14 +300,16 @@ def prune(ctx, keep, batch_size):
     '''
 
     db = connect()
-    # Mongo ObjectId encodes document creation timestamp, so we can sort with that. It's also by default indexed
+    # Substract number of results to keep from total analysis collection count.
+    # This number will be used to limit how many results sorted by oldest to newest should be returned
     nr = db.analysis.count() - keep
     click.echo('Will delete {0} documents'.format(nr))
+    # Mongo ObjectId encodes document creation timestamp, so we can sort with that. It's also indexed by default.
     sorted = db.analysis.find({}).sort("_id", 1).limit(nr).batch_size(batch_size)
     
-    # Iterate over the found results and delete them
     for doc in sorted:
         click.echo('Pruning task ID: {0}, that has ObjectId: {1}'.format(doc['info']['id'], doc['_id']))
+        # Cant simply invoke the delete function, because of click decorators
         ctx.invoke(delete, task_id=None, object_id=doc["_id"])
 
 
