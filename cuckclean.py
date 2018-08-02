@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 '''
 Command line utility to either get or delete a Cuckoo SandBox analysis from a MongoDB instance
-For the delete operations to work fast enough, a prerequisite is to create indexes on the fields described in the README
+README describes neccessary index creation tasks.
 '''
 import sys
 import logging
@@ -17,17 +17,28 @@ logging.basicConfig(level=logging.DEBUG,
                     filename='cuckclean.log', filemode='a')
 
 
+cli = click.Group()
+
+
 def connect():
+    '''
+    Return a Mongo DB connection object
+    '''
     client = pymongo.MongoClient('<IP goes here>', 27017)
     db = client['cuckoo']
     return db
 
 
-def get_analysis(db, task_id):
+def get_analysis(db, task_id=None, object_id=None):
     '''
     Retrieve analysis document from Mongo by task ID
     '''
-    doc = db.analysis.find_one({"info.id": task_id})
+    if task_id is not None:
+        click.echo('Got Task ID')
+        doc = db.analysis.find_one({"info.id": task_id})
+    elif object_id is not None:
+        click.echo('Got ObjectId')
+        doc = db.analysis.find_one({"_id": object_id})
     return doc
 
 
@@ -57,14 +68,15 @@ def get_calls(db, procs):
     return call_ids
 
 
-def get_files(target, network, shots, dropped, extracted):
+def get_files(target, network, shots, dropped, extracted=None):
     '''
     Get ID-s for target file, screenshots and extracted files
     '''
     fs_ids = dict()
-
-    if target['file_id'] is not None:
-        fs_ids['target'] = target['file_id']
+    
+    if target['category'] != 'url':
+        if target['file_id'] is not None:
+            fs_ids['target'] = target['file_id']
 
     if 'pcap_id' in network:
         fs_ids['pcap_id'] = network['pcap_id']
@@ -90,18 +102,19 @@ def get_files(target, network, shots, dropped, extracted):
         fs_ids['dropped'].add(drop['object_id'])
 
     fs_ids['extracted'] = set()
-    for ext in extracted:
-        for id in ext['extracted']:
-            fs_ids['extracted'].add(id['extracted_id'])
+    if extracted is not None:
+        for ext in extracted:
+            for id in ext['extracted']:
+                fs_ids['extracted'].add(id['extracted_id'])
 
     return fs_ids
 
 
-@click.command()
-@click.option('--task-id', default=1,  help='ID of task to retrieve from Mongo')
-def get(task_id):
+@cli.command()
+@click.option('--task-id', '-tid', default=None, type=int,  help='ID of task to retrieve from Mongo')
+def get(task_id=None, object_id=None):
     '''
-    Get a Cuckoo analysis from Mongo and display path
+    Get Cuckoo analysis details
     '''
 
     chunks = list()
@@ -110,11 +123,20 @@ def get(task_id):
     db = connect()
 
     # Get the report from the analysis collection
-    analysis = get_analysis(db, task_id)
-
-    if analysis is None:
-        click.echo('Analysis with task ID {} not found, terminating...'.format(task_id))
+    if task_id is not None:
+        analysis = get_analysis(db, task_id=task_id)
+        if analysis is None:
+            click.echo('Analysis with task ID {} not found, terminating...'.format(task_id))
+            sys.exit(1)
+    elif object_id is not None:
+        analysis = get_analysis(db, object_id=object_id)
+        if analysis is None:
+            click.echo('Analysis with object ID {} not found, terminating...'.format(object_id))
+            sys.exit(1)
+    else:
+        click.echo('No task-id or object-id provided, terminating...')
         sys.exit(1)
+
 
     click.echo('Analysis storage path: {}'.format(analysis['info']['analysis_path']))
 
@@ -122,10 +144,11 @@ def get(task_id):
                       analysis['network'], #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
                       analysis['shots'],
                       analysis['dropped'],
-                      analysis['procmemory'])
+                      analysis.get('procmemory', None))
 
-    if files['target'] is not None:
-        click.echo('Target file id: {}'.format(files['target']))
+    if 'target' in files:
+        if files['target'] is not None:
+            click.echo('Target file id: {}'.format(files['target']))
 
     # Find all chunks related to the files
     for key,values in files.items():
@@ -142,26 +165,37 @@ def get(task_id):
         click.echo('-----------------------------------------------')
 
     # For every process, find id-s of all calls stored in Mongo
-    if 'processes' in analysis['behavior']:
-        calls = get_calls(db, analysis['behavior']['processes'])
+    if 'behavior' in analysis: 
+        if 'processes' in analysis['behavior']:
+            calls = get_calls(db, analysis['behavior']['processes'])
 
     click.echo('-----------------------------------------------')
     click.echo('These are call_ids:\n {}'.format(calls))
 
 
-@click.command()
+@cli.command()
 @click.option('--task-id', default=1, help='ID of task to delete')
-def delete(task_id):
+def delete(task_id=None, object_id=None):
     '''
-    Delete the analysis and all related calls for the given Task ID
+    Delete a Cuckoo analysis
     '''
 
     db = connect()
     fs = gridfs.GridFS(db)
 
-    analysis = get_analysis(db, task_id)
-    if analysis is None:
-        click.echo('Analysis with task ID {} not found, terminating...'.format(task_id))
+    # Get the report from the analysis collection
+    if task_id is not None:
+        analysis = get_analysis(db, task_id=task_id)
+        if analysis is None:
+            click.echo('Analysis with task ID {} not found, terminating...'.format(task_id))
+            sys.exit(1)
+    elif object_id is not None:
+        analysis = get_analysis(db, object_id=object_id)
+        if analysis is None:
+            click.echo('Analysis with object ID {} not found, terminating...'.format(object_id))
+            sys.exit(1)
+    else:
+        click.echo('No task-id or object-id provided, terminating...')
         sys.exit(1)
 
     click.echo('Task {task_id} has Mongo id: {id}'
@@ -171,8 +205,9 @@ def delete(task_id):
                path=analysis['info']['analysis_path']))
     
     # For every process, find id-s of all calls stored in Mongo and delete them
-    if 'processes' in analysis['behavior']:
-        calls = get_calls(db, analysis['behavior']['processes'])
+    if 'behavior' in analysis:
+        if 'processes' in analysis['behavior']:
+            calls = get_calls(db, analysis['behavior']['processes'])
 
     del_calls = dict()
     del_calls['count'] = 0
@@ -195,12 +230,13 @@ def delete(task_id):
                       analysis['procmemory'])
 
     # Delete sample file from GridFS
-    if files['target'] is not None:
-        if db.analysis.find({"target.file_id": files["target"]}).count() == 1:
-            click.echo('Deleting target file: {0}'.format(files['target']))
-            fs.delete(files["target"])
-    logging.info('Deleted sample file with ID: {file_id}'
-                 .format(file_id=files["target"]))
+    if 'target' in files:
+        if files['target'] is not None:
+            if db.analysis.find({"target.file_id": files["target"]}).count() == 1:
+                click.echo('Deleting target file: {0}'.format(files['target']))
+                fs.delete(files["target"])
+                logging.info('Deleted sample file with ID: {file_id}'
+                             .format(file_id=files["target"]))
 
     # Delete screenshots.
     shot_del_count = 0
@@ -219,14 +255,12 @@ def delete(task_id):
             fs.delete(files["pcap_id"])
 
     # Delete sorted pcap
-    #if files['sorted_pcap_id'] is not None:
     if 'sorted_pcap_id' in files:
         if db.analysis.find({"network.sorted_pcap_id": files["sorted_pcap_id"]}).count() == 1:
             click.echo('Deleting SORTED PCAP file: {0}'.format(files['sorted_pcap_id']))
             fs.delete(files["sorted_pcap_id"])
 
     # Delete mitmproxy dump.
-    #if files['mitmproxy_id'] is not None:
     if 'mitmproxy_id' in files:
         if db.analysis.find({"network.mitmproxy_id": files["mitmproxy_id"]}).count() == 1:
             click.echo('Deleting MITMPROXY file: {0}'.format(files['mitmproxy_id']))
@@ -257,12 +291,38 @@ def delete(task_id):
                .format(analysis['info']['analysis_path']))
     shutil.rmtree(analysis['info']['analysis_path'])
 
+@cli.command()
+@click.option('--keep', default=100000, help='How many analyses to keep')
+@click.option('--batch_size', default=100, help='Batch size for Mongo query')
+@click.pass_context
+def prune(ctx, keep, batch_size):
+    '''
+    Prune oldest analysis results.
+    By default keeps 100 000 latest analysis.
+    Amount of analyses to keep can be modified with the keep option.
+    '''
+
+    db = connect()
+    # Mongo ObjectId encodes document creation timestamp, so we can sort with that. It's also by default indexed
+    nr = db.analysis.count() - keep
+    click.echo('Will delete {0} documents'.format(nr))
+    sorted = db.analysis.find({}).sort("_id", 1).limit(nr).batch_size(batch_size)
+    
+    # Iterate over the found results and delete them
+    for doc in sorted:
+        click.echo('Pruning task ID: {0}, that has ObjectId: {1}'.format(doc['info']['id'], doc['_id']))
+        ctx.invoke(delete, task_id=None, object_id=doc["_id"])
+
+
 @click.group()
 def entry_point():
     pass
 
 entry_point.add_command(get)
 entry_point.add_command(delete)
+entry_point.add_command(prune)
+
 
 if __name__ == '__main__':
     entry_point()
+
