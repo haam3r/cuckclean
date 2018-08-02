@@ -99,7 +99,8 @@ def get_files(target, network, shots, dropped, extracted=None):
 
     fs_ids['dropped'] = set()
     for drop in dropped:
-        fs_ids['dropped'].add(drop['object_id'])
+        if 'object_id' in drop:
+            fs_ids['dropped'].add(drop['object_id'])
 
     fs_ids['extracted'] = set()
     if extracted is not None:
