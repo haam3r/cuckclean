@@ -75,7 +75,7 @@ def get_files(target, network, shots, dropped, extracted=None):
     fs_ids = dict()
     
     if target['category'] != 'url':
-        if target['file_id'] is not None:
+        if 'file_id' in target and target['file_id'] is not None:
             fs_ids['target'] = target['file_id']
 
     if 'pcap_id' in network:
@@ -304,7 +304,7 @@ def prune(ctx, keep, batch_size):
     # This number will be used to limit how many results sorted by oldest to newest should be returned
     total = db.analysis.count()
     if total >= keep:
-        click.echo('Total docs is: {0} and you gave {1} as keep...does not compute'.format(total, Keep))
+        click.echo('Total docs is: {0} and you gave {1} as keep...does not compute'.format(total, keep))
         sys.exit(1)
 
     nr = total - keep
