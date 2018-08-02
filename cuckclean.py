@@ -209,27 +209,26 @@ def delete(task_id=None, object_id=None):
     if 'behavior' in analysis:
         if 'processes' in analysis['behavior']:
             calls = get_calls(db, analysis['behavior']['processes'])
+            del_calls = dict()
+            del_calls['count'] = 0
+            del_calls['results'] = dict()
+            for call in calls:
+                click.echo('Deleting call ID: {0}'.format(call))
+                del_call_result = db.calls.delete_one({"_id": call})
+                del_calls['count'] += del_call_result.deleted_count
+                del_calls['results'][call] = del_call_result.raw_result
 
-    del_calls = dict()
-    del_calls['count'] = 0
-    del_calls['results'] = dict()
-    for call in calls:
-        click.echo('Deleting call ID: {0}'.format(call))
-        del_call_result = db.calls.delete_one({"_id": call})
-        del_calls['count'] += del_call_result.deleted_count
-        del_calls['results'][call] = del_call_result.raw_result
-
-    click.echo('Deleted {cnt} calls out of {total} calls for {task_id}'
-               .format(cnt=del_calls['count'],
-               total=len(calls), task_id=task_id))
-    logging.debug(del_calls['results'])
+            click.echo('Deleted {cnt} calls out of {total} calls for {task_id}'
+                       .format(cnt=del_calls['count'],
+                       total=len(calls), task_id=task_id))
+            logging.debug(del_calls['results'])
 
     # Compile a list of all file id-s using the get_files function and delete all files that are unique
     files = get_files(analysis['target'], #['file_id']
                       analysis['network'], #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
                       analysis['shots'],
                       analysis['dropped'],
-                      analysis['procmemory'])
+                      analysis.get('procmemory', None))
 
     # Delete sample file from GridFS
     if 'target' in files:
@@ -303,7 +302,12 @@ def prune(ctx, keep, batch_size):
     db = connect()
     # Substract number of results to keep from total analysis collection count.
     # This number will be used to limit how many results sorted by oldest to newest should be returned
-    nr = db.analysis.count() - keep
+    total = db.analysis.count()
+    if total >= keep:
+        click.echo('Total docs is: {0} and you gave {1} as keep...does not compute'.format(total, Keep))
+        sys.exit(1)
+
+    nr = total - keep
     click.echo('Will delete {0} documents'.format(nr))
     # Mongo ObjectId encodes document creation timestamp, so we can sort with that. It's also indexed by default.
     sorted = db.analysis.find({}).sort("_id", 1).limit(nr).batch_size(batch_size)
