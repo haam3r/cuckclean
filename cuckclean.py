@@ -141,10 +141,10 @@ def get(task_id=None, object_id=None):
 
     click.echo('Analysis storage path: {}'.format(analysis['info']['analysis_path']))
 
-    files = get_files(analysis['target'], #['file_id']
-                      analysis['network'], #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
-                      analysis['shots'],
-                      analysis['dropped'],
+    files = get_files(analysis.get('target', None), #['file_id']
+                      analysis.get('network', None), #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
+                      analysis.get('shots', None),
+                      analysis.get('dropped', None),
                       analysis.get('procmemory', None))
 
     if 'target' in files:
@@ -224,10 +224,10 @@ def delete(task_id=None, object_id=None):
             logging.debug(del_calls['results'])
 
     # Compile a list of all file id-s using the get_files function and delete all files that are unique
-    files = get_files(analysis['target'], #['file_id']
-                      analysis['network'], #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
-                      analysis['shots'],
-                      analysis['dropped'],
+    files = get_files(analysis.get('target', None), #['file_id']
+                      analysis.get('network', None), #['sorted_pcap_id'], ['mitmproxy_id'], ['pcap_id']
+                      analysis.get('shots', None),
+                      analysis.get('dropped', None),
                       analysis.get('procmemory', None))
 
     # Delete sample file from GridFS
@@ -250,7 +250,7 @@ def delete(task_id=None, object_id=None):
     click.echo('I deleted {0} shots'.format(shot_del_count))
 
     # Delete network pcap.
-    if files['pcap_id'] is not None:
+    if 'pcap_id' in files:
         if db.analysis.find({"network.pcap_id": files["pcap_id"]}).count() == 1:
             click.echo('Deleting PCAP file: {0}'.format(files['pcap_id']))
             fs.delete(files["pcap_id"])
@@ -303,7 +303,7 @@ def prune(ctx, keep, batch_size):
     # Substract number of results to keep from total analysis collection count.
     # This number will be used to limit how many results sorted by oldest to newest should be returned
     total = db.analysis.count()
-    if total >= keep:
+    if keep >= total:
         click.echo('Total docs is: {0} and you gave {1} as keep...does not compute'.format(total, keep))
         sys.exit(1)
 
