@@ -74,7 +74,7 @@ def get_files(target, network, shots, dropped, extracted=None):
     '''
     fs_ids = dict()
     
-    if 'category' in target:
+    if target is not None and 'category' in target:
         if target['category'] != 'url':
             if 'file_id' in target and target['file_id'] is not None:
                 fs_ids['target'] = target['file_id']
