@@ -4,6 +4,7 @@
 Command line utility to either get or delete a Cuckoo SandBox analysis from a MongoDB instance
 README describes neccessary index creation tasks.
 '''
+import os
 import sys
 import logging
 import shutil
@@ -20,11 +21,18 @@ logging.basicConfig(level=logging.DEBUG,
 cli = click.Group()
 
 
-def connect():
+def connect(host):
     '''
     Return a Mongo DB connection object
     '''
-    client = pymongo.MongoClient('<IP goes here>', 27017)
+    client = pymongo.MongoClient(host, 27027)
+    try:
+        # The ismaster command is cheap and does not require auth.
+        client.admin.command('ismaster')
+    except pymongo.errors.ConnectionFailure:
+        click.echo('Connecting to Mongo failed, terminating...')
+        sys.exit(1)
+    
     db = client['cuckoo']
     return db
 
@@ -73,8 +81,8 @@ def get_files(target, network, shots, dropped, extracted=None):
     Get ID-s for target file, screenshots and extracted files
     '''
     fs_ids = dict()
-    
-    if 'category' in target:
+
+    if target is not None and 'category' in target:
         if target['category'] != 'url':
             if 'file_id' in target and target['file_id'] is not None:
                 fs_ids['target'] = target['file_id']
@@ -114,7 +122,8 @@ def get_files(target, network, shots, dropped, extracted=None):
 
 @cli.command()
 @click.option('--task-id', '-tid', default=None, type=int,  help='ID of task to retrieve from Mongo')
-def get(task_id=None, object_id=None):
+@click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
+def get(task_id=None, object_id=None, host=None):
     '''
     Get Cuckoo analysis details
     '''
@@ -122,7 +131,7 @@ def get(task_id=None, object_id=None):
     chunks = list()
     calls = list()
     files = dict()
-    db = connect()
+    db = connect(host)
 
     # Get the report from the analysis collection
     if task_id is not None:
@@ -167,7 +176,7 @@ def get(task_id=None, object_id=None):
         click.echo('-----------------------------------------------')
 
     # For every process, find id-s of all calls stored in Mongo
-    if 'behavior' in analysis: 
+    if 'behavior' in analysis:
         if 'processes' in analysis['behavior']:
             calls = get_calls(db, analysis['behavior']['processes'])
 
@@ -176,13 +185,14 @@ def get(task_id=None, object_id=None):
 
 
 @cli.command()
-@click.option('--task-id', default=1, help='ID of task to delete')
-def delete(task_id=None, object_id=None):
+@click.option('--task-id', '-tid', default=1, type=int, help='ID of task to delete')
+@click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
+def delete(task_id=None, object_id=None, host=None):
     '''
     Delete a Cuckoo analysis
     '''
 
-    db = connect()
+    db = connect(host)
     fs = gridfs.GridFS(db)
 
     # Get the report from the analysis collection
@@ -205,7 +215,7 @@ def delete(task_id=None, object_id=None):
     click.echo('Storage path for {task_id}: {path}'
                .format(task_id=task_id,
                path=analysis['info']['analysis_path']))
-    
+
     # For every process, find id-s of all calls stored in Mongo and delete them
     if 'behavior' in analysis:
         if 'processes' in analysis['behavior']:
@@ -267,7 +277,7 @@ def delete(task_id=None, object_id=None):
         if db.analysis.find({"network.mitmproxy_id": files["mitmproxy_id"]}).count() == 1:
             click.echo('Deleting MITMPROXY file: {0}'.format(files['mitmproxy_id']))
             fs.delete(files["mitmproxy_id"])
-    
+
     # Delete dropped.
     drop_del_count = 0
     for drop in files["dropped"]:
@@ -290,17 +300,27 @@ def delete(task_id=None, object_id=None):
     shutil.rmtree(analysis['info']['analysis_path'])
 
 @cli.command()
-@click.option('--keep', default=100000, help='How many analyses to keep')
-@click.option('--batch_size', default=100, help='Batch size for Mongo query')
+@click.option('--keep', '-k', default=100000, type=int, help='How many analyses to keep')
+@click.option('--batch_size', '-b', default=100, type=int, help='Batch size for Mongo query')
+@click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
 @click.pass_context
-def prune(ctx, keep, batch_size):
+def prune(ctx, keep, batch_size, host):
     '''
     Prune oldest analysis results.
     By default keeps 100 000 latest analysis.
     Amount of analyses to keep can be modified with the keep option.
     '''
 
-    db = connect()
+    pid = str(os.getpid())
+    pidfile = "/tmp/cuckclean.pid"
+    if os.path.isfile(pidfile):
+        click.echo("{0} already exists, exiting".format(pidfile))
+        sys.exit()
+    with open(pidfile, 'w') as f:
+        f.write(pid)
+    logging.debug('Wrote pid {0} to {1}'.format(pid, pidfile))
+
+    db = connect(host)
     # Substract number of results to keep from total analysis collection count.
     # This number will be used to limit how many results sorted by oldest to newest should be returned
     total = db.analysis.count()
@@ -312,11 +332,48 @@ def prune(ctx, keep, batch_size):
     click.echo('Will delete {0} documents'.format(nr))
     # Mongo ObjectId encodes document creation timestamp, so we can sort with that. It's also indexed by default.
     sorted = db.analysis.find({}).sort("_id", 1).limit(nr).batch_size(batch_size)
-    
+
     for doc in sorted:
-        click.echo('Pruning task ID: {0}, that has ObjectId: {1}'.format(doc['info']['id'], doc['_id']))
+        logging.debug('Pruning task ID: {0}, that has ObjectId: {1}'.format(doc['info']['id'], doc['_id']))
         # Cant simply invoke the delete function, because of click decorators
         ctx.invoke(delete, task_id=None, object_id=doc["_id"])
+
+    os.remove(pidfile)
+    logging.debug('Removed pidfile')
+    click.echo('Finished prune task. Exiting!')
+
+
+@cli.command()
+@click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
+@click.pass_context
+def clean(ctx, host):
+    '''
+    Remove orphaned files from MongoDB
+    '''
+
+    db = connect(host)
+    fs = gridfs.GridFS(db)
+
+    total = 0
+    deleted = []
+
+    files = db.fs.files.find({}).sort("_id", 1).batch_size(100)
+
+    for file in files:
+        total += 1
+        if file["contentType"] == "application/vnd.tcpdump.pcap":
+            if db.analysis.find({"network.pcap_id": file["_id"]}).count() == 0:
+                deleted.append(file["_id"])
+                fs.delete(file["_id"])
+        else:
+            if db.analysis.find({"target.file_id": file["_id"]}).count() == 0:
+                if db.analysis.find({"shots.original": file["_id"]}).count() == 0:
+                    if db.analysis.find({"dropped.object_id": file["_id"]}).count() == 0:
+                        deleted.append(file["_id"])
+                        fs.delete(file["_id"])
+
+    click.echo("Total nr of files was: {0}".format(total))
+    click.echo("Amount of files deleted: {0}".format(len(deleted)))
 
 
 @click.group()
@@ -326,8 +383,4 @@ def entry_point():
 entry_point.add_command(get)
 entry_point.add_command(delete)
 entry_point.add_command(prune)
-
-
-if __name__ == '__main__':
-    entry_point()
-
+entry_point.add_command(clean)
