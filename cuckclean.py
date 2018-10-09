@@ -21,11 +21,11 @@ logging.basicConfig(level=logging.DEBUG,
 cli = click.Group()
 
 
-def connect(host):
+def connect(host, port):
     '''
     Return a Mongo DB connection object
     '''
-    client = pymongo.MongoClient(host, 27027)
+    client = pymongo.MongoClient(host, port)
     try:
         # The ismaster command is cheap and does not require auth.
         client.admin.command('ismaster')
@@ -123,7 +123,8 @@ def get_files(target, network, shots, dropped, extracted=None):
 @cli.command()
 @click.option('--task-id', '-tid', default=None, type=int,  help='ID of task to retrieve from Mongo')
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
-def get(task_id=None, object_id=None, host=None):
+@click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
+def get(task_id=None, object_id=None, host=None, port=None):
     '''
     Get Cuckoo analysis details
     '''
@@ -131,7 +132,7 @@ def get(task_id=None, object_id=None, host=None):
     chunks = list()
     calls = list()
     files = dict()
-    db = connect(host)
+    db = connect(host, port)
 
     # Get the report from the analysis collection
     if task_id is not None:
@@ -187,12 +188,13 @@ def get(task_id=None, object_id=None, host=None):
 @cli.command()
 @click.option('--task-id', '-tid', default=1, type=int, help='ID of task to delete')
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
-def delete(task_id=None, object_id=None, host=None):
+@click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
+def delete(task_id=None, object_id=None, host=None, port=None):
     '''
     Delete a Cuckoo analysis
     '''
 
-    db = connect(host)
+    db = connect(host, port)
     fs = gridfs.GridFS(db)
 
     # Get the report from the analysis collection
@@ -303,8 +305,9 @@ def delete(task_id=None, object_id=None, host=None):
 @click.option('--keep', '-k', default=100000, type=int, help='How many analyses to keep')
 @click.option('--batch_size', '-b', default=100, type=int, help='Batch size for Mongo query')
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
+@click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
 @click.pass_context
-def prune(ctx, keep, batch_size, host):
+def prune(ctx, keep, batch_size, host, port):
     '''
     Prune oldest analysis results.
     By default keeps 100 000 latest analysis.
@@ -320,7 +323,7 @@ def prune(ctx, keep, batch_size, host):
         f.write(pid)
     logging.debug('Wrote pid {0} to {1}'.format(pid, pidfile))
 
-    db = connect(host)
+    db = connect(host, port)
     # Substract number of results to keep from total analysis collection count.
     # This number will be used to limit how many results sorted by oldest to newest should be returned
     total = db.analysis.count()
@@ -345,13 +348,14 @@ def prune(ctx, keep, batch_size, host):
 
 @cli.command()
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
+@click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
 @click.pass_context
-def clean(ctx, host):
+def clean(ctx, host, port):
     '''
     Remove orphaned files from MongoDB
     '''
 
-    db = connect(host)
+    db = connect(host, port)
     fs = gridfs.GridFS(db)
 
     total = 0
