@@ -23,7 +23,17 @@ db.fs.createIndex({"chunks.files_id:": 1})
 db.fs.createIndex({"files.sha256:": 1})
 ```
 
-Use cuckclean --help to get info on available commands.
-All commands need a host parameter, provided via -h or --host.
+## Install
+
+Installation is done via pip, as follows:
+
+```bash
+pip install git+https://github.com/haam3r/cuckclean.git
+```
+
+## Usage
+
+Use `cuckclean --help` to get info on available commands.
+All commands need a host parameter, provided via -h or --host. e.g. `cuckclean prune -h mongo.ip.addr --keep 100000`
 
 Pull requests and issues welcome
