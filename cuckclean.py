@@ -198,8 +198,9 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
     
     if db is None:
         db = connect(host, port)
-        fs = gridfs.GridFS(db)
         logging.debug('Connected to Mongo')
+
+    fs = gridfs.GridFS(db)
 
     # Get the report from the analysis collection
     if task_id is not None:
