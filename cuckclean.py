@@ -44,10 +44,10 @@ def get_analysis(db, task_id=None, object_id=None):
     Retrieve analysis document from Mongo by task ID
     '''
     if task_id is not None:
-        click.echo('Got Task ID')
+        logging.debug('Got Task ID {0}'.format(task_id))
         doc = db.analysis.find_one({"info.id": task_id})
     elif object_id is not None:
-        click.echo('Got ObjectId')
+        logging.debug('Got ObjectId {0}'.format(object_id))
         doc = db.analysis.find_one({"_id": object_id})
     return doc
 
