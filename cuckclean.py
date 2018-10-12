@@ -208,6 +208,8 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
         if analysis is None:
             click.echo('Analysis with task ID {} not found, terminating...'.format(task_id))
             sys.exit(1)
+        click.echo('Task {task_id} has Mongo id: {id}'
+               .format(task_id=task_id, id=analysis['_id']))
     elif object_id is not None:
         analysis = get_analysis(db, object_id=object_id)
         if analysis is None:
@@ -217,11 +219,6 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
         click.echo('No task-id or object-id provided, terminating...')
         sys.exit(1)
 
-    click.echo('Task {task_id} has Mongo id: {id}'
-               .format(task_id=task_id, id=analysis['_id']))
-    click.echo('Storage path for {task_id}: {path}'
-               .format(task_id=task_id,
-               path=analysis['info']['analysis_path']))
 
     # For every process, find id-s of all calls stored in Mongo and delete them
     if 'behavior' in analysis:
