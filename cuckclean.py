@@ -315,7 +315,7 @@ def prune(ctx, keep, batch_size, host, port):
     '''
 
     pid = str(os.getpid())
-    pidfile = "/tmp/cuckclean.pid"
+    pidfile = "/tmp/cuckclean_prune.pid"
     if os.path.isfile(pidfile):
         click.echo("{0} already exists, exiting".format(pidfile))
         sys.exit()
@@ -354,6 +354,16 @@ def clean(ctx, host, port):
     '''
     Remove orphaned files from MongoDB
     '''
+
+
+    pid = str(os.getpid())
+    pidfile = "/tmp/cuckclean_clean.pid"
+    if os.path.isfile(pidfile):
+        click.echo("{0} already exists, exiting".format(pidfile))
+        sys.exit()
+    with open(pidfile, 'w') as f:
+        f.write(pid)
+    logging.debug('Wrote pid {0} to {1}'.format(pid, pidfile))
 
     db = connect(host, port)
     fs = gridfs.GridFS(db)
