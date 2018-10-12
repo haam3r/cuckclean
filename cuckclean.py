@@ -231,7 +231,7 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
             del_calls['count'] = 0
             del_calls['results'] = dict()
             for call in calls:
-                click.echo('Deleting call ID: {0}'.format(call))
+                logging.debug('Deleting call ID: {0}'.format(call))
                 del_call_result = db.calls.delete_one({"_id": call})
                 del_calls['count'] += del_call_result.deleted_count
                 del_calls['results'][call] = del_call_result.raw_result
@@ -252,9 +252,9 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
     if 'target' in files:
         if files['target'] is not None:
             if db.analysis.find({"target.file_id": files["target"]}).count() == 1:
-                click.echo('Deleting target file: {0}'.format(files['target']))
+                #click.echo('Deleting target file: {0}'.format(files['target']))
                 fs.delete(files["target"])
-                logging.info('Deleted sample file with ID: {file_id}'
+                logging.info('Deleted target file with ID: {file_id}'
                              .format(file_id=files["target"]))
 
     # Delete screenshots.
@@ -264,36 +264,36 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
                     logging.debug('Deleting shot file: {0}'.format(shot))
                     shot_del_count += 1
                     fs.delete(shot)
-    click.echo('Total count of shots was {}'.format(len(files['shots'])))
-    click.echo('I deleted {0} shots'.format(shot_del_count))
+    logging.debug('Total count of shots was {}'.format(len(files['shots'])))
+    logging.debug('I deleted {0} shots'.format(shot_del_count))
 
     # Delete network pcap.
     if 'pcap_id' in files:
         if db.analysis.find({"network.pcap_id": files["pcap_id"]}).count() == 1:
-            click.echo('Deleting PCAP file: {0}'.format(files['pcap_id']))
+            logging.debug('Deleting PCAP file: {0}'.format(files['pcap_id']))
             fs.delete(files["pcap_id"])
 
     # Delete sorted pcap
     if 'sorted_pcap_id' in files:
         if db.analysis.find({"network.sorted_pcap_id": files["sorted_pcap_id"]}).count() == 1:
-            click.echo('Deleting SORTED PCAP file: {0}'.format(files['sorted_pcap_id']))
+            logging.debug('Deleting SORTED PCAP file: {0}'.format(files['sorted_pcap_id']))
             fs.delete(files["sorted_pcap_id"])
 
     # Delete mitmproxy dump.
     if 'mitmproxy_id' in files:
         if db.analysis.find({"network.mitmproxy_id": files["mitmproxy_id"]}).count() == 1:
-            click.echo('Deleting MITMPROXY file: {0}'.format(files['mitmproxy_id']))
+            logging.debug('Deleting MITMPROXY file: {0}'.format(files['mitmproxy_id']))
             fs.delete(files["mitmproxy_id"])
 
     # Delete dropped.
     drop_del_count = 0
     for drop in files["dropped"]:
         if db.analysis.find({"dropped.object_id": drop}).count() == 1:
-            click.echo('Deleting droppped file: {0}'.format(drop))
+            logging.debug('Deleting droppped file: {0}'.format(drop))
             drop_del_count += 1
             fs.delete(drop)
-    click.echo('Total count of droppped was {}'.format(len(files['dropped'])))
-    click.echo('{0} dropped files were deleted'.format(drop_del_count))
+    logging.debug('Total count of droppped was {}'.format(len(files['dropped'])))
+    logging.debug('{0} dropped files were deleted'.format(drop_del_count))
 
     # Delete analysis document
     del_analysis = db.analysis.delete_one({"_id": analysis['_id']})
