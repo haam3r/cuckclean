@@ -318,7 +318,7 @@ def prune(ctx, keep, batch_size, host, port, debug):
     '''
 
     if debug:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
 
     pid = str(os.getpid())
     pidfile = "/tmp/cuckclean_prune.pid"
