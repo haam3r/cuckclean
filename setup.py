@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='cuckclean',
-    version='0.7',
+    version='0.8',
     author="haam3r",
     description="CLI utility to operate MongoDB documents of Cuckoo Sandbox",
     long_description=long_description,

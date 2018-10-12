@@ -13,7 +13,7 @@ import pymongo
 import gridfs
 from bson.objectid import ObjectId
 
-logging.basicConfig(level=logging.DEBUG,
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s',
                     filename='cuckclean.log', filemode='a')
 
@@ -311,13 +311,17 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
 @click.option('--batch_size', '-b', default=100, type=int, help='Batch size for Mongo query')
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
 @click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
+@click.option('--debug', '-d', is_flag=True, help='Port of MongoDB server')
 @click.pass_context
-def prune(ctx, keep, batch_size, host, port):
+def prune(ctx, keep, batch_size, host, port, debug):
     '''
     Prune oldest analysis results.
     By default keeps 100 000 latest analysis.
     Amount of analyses to keep can be modified with the keep option.
     '''
+
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
 
     pid = str(os.getpid())
     pidfile = "/tmp/cuckclean_prune.pid"
@@ -343,7 +347,7 @@ def prune(ctx, keep, batch_size, host, port):
     sorted = db.analysis.find({}).sort("_id", 1).limit(nr).batch_size(batch_size)
 
     for doc in sorted:
-        logging.debug('Pruning task ID: {0}, that has ObjectId: {1}'.format(doc['info']['id'], doc['_id']))
+        logging.info('Pruning task ID: {0}, that has ObjectId: {1}'.format(doc['info']['id'], doc['_id']))
         # Cant simply invoke the delete function, because of click decorators
         ctx.invoke(delete, db=db, task_id=None, object_id=doc["_id"], host=host, port=port)
 
