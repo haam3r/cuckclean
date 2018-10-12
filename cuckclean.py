@@ -25,14 +25,16 @@ def connect(host, port):
     '''
     Return a Mongo DB connection object
     '''
+    logging.debug('Starting connection to Mongo')
     client = pymongo.MongoClient(host, port)
     try:
         # The ismaster command is cheap and does not require auth.
+        logging.debug('running ismaster check')
         client.admin.command('ismaster')
     except pymongo.errors.ConnectionFailure:
         click.echo('Connecting to Mongo failed, terminating...')
         sys.exit(1)
-    
+    logging.debug('setting db to cuckoo')
     db = client['cuckoo']
     return db
 
@@ -124,7 +126,7 @@ def get_files(target, network, shots, dropped, extracted=None):
 @click.option('--task-id', '-tid', default=None, type=int,  help='ID of task to retrieve from Mongo')
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
 @click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
-def get(task_id=None, object_id=None, host=None, port=None):
+def get(db=None, task_id=None, object_id=None, host=None, port=None):
     '''
     Get Cuckoo analysis details
     '''
@@ -189,13 +191,15 @@ def get(task_id=None, object_id=None, host=None, port=None):
 @click.option('--task-id', '-tid', default=1, type=int, help='ID of task to delete')
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
 @click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
-def delete(task_id=None, object_id=None, host=None, port=None):
+def delete(db=None, task_id=None, object_id=None, host=None, port=None):
     '''
     Delete a Cuckoo analysis
     '''
-
-    db = connect(host, port)
-    fs = gridfs.GridFS(db)
+    
+    if db is None:
+        db = connect(host, port)
+        fs = gridfs.GridFS(db)
+        logging.debug('Connected to Mongo')
 
     # Get the report from the analysis collection
     if task_id is not None:
@@ -324,6 +328,7 @@ def prune(ctx, keep, batch_size, host, port):
     logging.debug('Wrote pid {0} to {1}'.format(pid, pidfile))
 
     db = connect(host, port)
+    logging.debug('Connected to Mongo')
     # Substract number of results to keep from total analysis collection count.
     # This number will be used to limit how many results sorted by oldest to newest should be returned
     total = db.analysis.count()
@@ -339,7 +344,7 @@ def prune(ctx, keep, batch_size, host, port):
     for doc in sorted:
         logging.debug('Pruning task ID: {0}, that has ObjectId: {1}'.format(doc['info']['id'], doc['_id']))
         # Cant simply invoke the delete function, because of click decorators
-        ctx.invoke(delete, task_id=None, object_id=doc["_id"])
+        ctx.invoke(delete, db=db, task_id=None, object_id=doc["_id"], host=host, port=port)
 
     os.remove(pidfile)
     logging.debug('Removed pidfile')
@@ -355,7 +360,6 @@ def clean(ctx, host, port):
     Remove orphaned files from MongoDB
     '''
 
-
     pid = str(os.getpid())
     pidfile = "/tmp/cuckclean_clean.pid"
     if os.path.isfile(pidfile):
@@ -367,6 +371,7 @@ def clean(ctx, host, port):
 
     db = connect(host, port)
     fs = gridfs.GridFS(db)
+    logging.debug('Connected to Mongo')
 
     total = 0
     deleted = []
