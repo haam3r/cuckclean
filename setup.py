@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='cuckclean',
-    version='0.2',
+    version='0.3',
     author="haam3r",
     description="CLI utility to operate MongoDB documents of Cuckoo Sandbox",
     long_description=long_description,
@@ -18,8 +18,8 @@ setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        'Click',
-        'pymongo',
+        'Click==6.6',
+        'pymongo==3.0.3',
     ],
     entry_points='''
         [console_scripts]
