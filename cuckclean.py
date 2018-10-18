@@ -301,7 +301,11 @@ def delete(db=None, task_id=None, object_id=None, host=None, port=None):
     # Delete storage folder from disk
     click.echo('Analysis and related data removed from Mongo, now removing storage folder at: {0}'
                .format(analysis['info']['analysis_path']))
-    shutil.rmtree(analysis['info']['analysis_path'])
+    try:
+        shutil.rmtree(analysis['info']['analysis_path'])
+    except OSError as e:
+        click.echo('Unable to delete storage folder {0} because: {1}'.format(analysis['info']['analysis_path'], e), err=True)
+        pass
 
 @cli.command()
 @click.option('--keep', '-k', default=100000, type=int, help='How many analyses to keep')
@@ -335,7 +339,11 @@ def prune(ctx, keep, batch_size, host, port, debug):
     # This number will be used to limit how many results sorted by oldest to newest should be returned
     total = db.analysis.count()
     if keep >= total:
-        click.echo('Total docs is: {0} and you gave {1} as keep...does not compute'.format(total, keep))
+        click.echo('Total docs is: {0} and you gave {1} as keep...does not compute'.format(total, keep), err=True)
+        try:
+            os.remove(pidfile)
+        except OSError:
+            pass
         sys.exit(1)
 
     nr = total - keep
@@ -348,7 +356,11 @@ def prune(ctx, keep, batch_size, host, port, debug):
         # Cant simply invoke the delete function, because of click decorators
         ctx.invoke(delete, db=db, task_id=None, object_id=doc["_id"], host=host, port=port)
 
-    os.remove(pidfile)
+    try:
+        os.remove(pidfile)
+    except OSError as e:
+        logging.error('Unable to delete pidfile {0}, because {1}'.format(pidfile, e))
+        pass
     logging.debug('Removed pidfile')
     click.echo('Finished prune task. Exiting!')
 
