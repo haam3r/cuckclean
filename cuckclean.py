@@ -368,11 +368,15 @@ def prune(ctx, keep, batch_size, host, port, debug):
 @cli.command()
 @click.option('--host', '-h', default=None, type=str, help='IP or hostname of MongoDB server')
 @click.option('--port', '-p', default=27017, type=int, help='Port of MongoDB server')
+@click.option('--debug', '-d', is_flag=True, help='Port of MongoDB server')
 @click.pass_context
-def clean(ctx, host, port):
+def clean(ctx, host, port, debug):
     '''
     Remove orphaned files from MongoDB
     '''
+
+    if debug:
+        logging.getLogger().setLevel(logging.DEBUG)
 
     pid = str(os.getpid())
     pidfile = "/tmp/cuckclean_clean.pid"
@@ -396,14 +400,18 @@ def clean(ctx, host, port):
         total += 1
         if file["contentType"] == "application/vnd.tcpdump.pcap":
             if db.analysis.find({"network.pcap_id": file["_id"]}).count() == 0:
+                logging.debug('Found PCAP: {0}, count was {1}'.format(file["_id"], db.analysis.find({"network.pcap_id": file["_id"]}).count()))
                 deleted.append(file["_id"])
                 fs.delete(file["_id"])
         else:
             if db.analysis.find({"target.file_id": file["_id"]}).count() == 0:
                 if db.analysis.find({"shots.original": file["_id"]}).count() == 0:
                     if db.analysis.find({"dropped.object_id": file["_id"]}).count() == 0:
+                        logging.debug('Found FILE: {0}'.format(file["_id"]))
                         deleted.append(file["_id"])
                         fs.delete(file["_id"])
+        
+        logging.debug("Current count of deleted is: {0}".format(len(deleted)))
 
     click.echo("Total nr of files was: {0}".format(total))
     click.echo("Amount of files deleted: {0}".format(len(deleted)))
