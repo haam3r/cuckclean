@@ -416,6 +416,13 @@ def clean(ctx, host, port, debug):
     click.echo("Total nr of files was: {0}".format(total))
     click.echo("Amount of files deleted: {0}".format(len(deleted)))
 
+    try:
+        os.remove(pidfile)
+    except OSError as e:
+        logging.error('Unable to delete pidfile {0}, because {1}'.format(pidfile, e))
+        pass
+    logging.debug('Removed pidfile')
+    click.echo('Finished clean task. Exiting!')
 
 @click.group()
 def entry_point():
